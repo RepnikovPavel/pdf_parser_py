@@ -1,4 +1,5 @@
 import csv
+import sys
 import time
 import copy
 
@@ -325,19 +326,13 @@ def glue_line_breaks(tokens):
 
 def run_backend_get_all_unique_words(source_pdf_path,
                                      MAX_NUM_OF_OUTPUT=300):
-    print("getting unique words")
+    print("getting unique words...")
     start_time = time.time()
     pdf_path= source_pdf_path
     table_for_replacing_abbreviations = \
         {
             "fig": "figure"
         }
-    english_alphabet = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
-                        "T",
-                        "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-                        "n",
-                        "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
-
 
     clear_dir("./pixmaps")
 
@@ -355,6 +350,11 @@ def run_backend_get_all_unique_words(source_pdf_path,
     # make filters of "words" also
     disallowed_characters = "!@#$%^&*()_+1234567890-–=<>?,./`~”“№;:[]{}•’"
     replacing_keys_ = table_for_replacing_abbreviations.keys()
+    english_alphabet = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
+                        "T",
+                        "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+                        "n",
+                        "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
 
     print("\treading row text")
     with fitz.open(pdf_path) as pdf:
@@ -414,7 +414,55 @@ def run_backend_get_all_unique_words(source_pdf_path,
     print("\ttime of processing {} s".format(stop_time-start_time))
     return sections
 
+def run_backend_get_metada(pdf_path):
+    print("getting metadata of pdf file...")
+    metadata = {}
+    checker = enchant.Dict("en_US")
+    stop_words = set(stopwords.words('english'))
+    disallowed_characters = "!@#$%^&*()_+1234567890-–=<>?,./`~”“№;:[]{}•’"
+    english_alphabet = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
+                        "T",
+                        "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+                        "n",
+                        "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+
+    with fitz.open(pdf_path) as pdf:
+        num_of_pages = len(pdf)
+        metadata.update({"number_of_pages":str(num_of_pages)})
+        # get num of characters
+        ch_c_row = 0
+        ch_c_meaningful_text=0
+        ch_c_without_spaces=0
+        for i, page in enumerate(pdf):
+
+            blocks_in_page = page.get_text("blocks")
+            for block in blocks_in_page:
+                text_of_block = block[4]
+                tokenized_block_into_sents = sent_tokenize(text_of_block)
+                for sentence in tokenized_block_into_sents:
+                    ch_c_row += len(sentence)
+                    # получаем последовательнсот слов из предложения
+                    word_list = nltk.word_tokenize(sentence,"english",True)
+                    # обрабатываем перенос строки с помощью "-"
+                    word_list = glue_line_breaks(word_list)
+                    # убираем спец слова
+                    word_list = [w for w in word_list if w not in stop_words]
+                    # убираем не нужные символы
+                    word_list = filter_word_list(word_list,filter_of_trash_characters,
+                    disallowed_characters=disallowed_characters,
+                    english_alphabet=english_alphabet)
+                    for word in word_list:
+                        ch_c_without_spaces += len(word)
+                        if checker.check(word):
+                            ch_c_meaningful_text += len(word)
+        metadata.update({"number of сharacters in the text":str(ch_c_meaningful_text)})
+        metadata.update({"full number of characters":str(ch_c_row)})
+        metadata.update({"full number of characters without spaces":str(ch_c_without_spaces)})
+        return metadata
+
+
 def run_backend_get_tranlate_of_unique_words(words_dict):
+    sys.stdout.reconfigure(encoding='utf-8')
     traslate_output = {}
     driver = webdriver.Chrome()
     driver.get('https://translate.yandex.ru/')
@@ -422,6 +470,7 @@ def run_backend_get_tranlate_of_unique_words(words_dict):
     input = driver.find_element(By.ID, "fakeArea")
     output = driver.find_element(By.ID, "translation")
     i=0
+    example_list = []
     for key,words_dicts_list in words_dict.items():
         traslate_output.update({key:[]})
         for word_dict in words_dicts_list:
@@ -431,9 +480,16 @@ def run_backend_get_tranlate_of_unique_words(words_dict):
             time.sleep(2)
             word_translation = output.get_attribute("value")
             example_group = driver.find_elements(By.CLASS_NAME, "example_group")
-            other =""
             for group in example_group:
-                other+=group.text
+                if len(group.text)>0:
+                    tokenized_block_into_sents = sent_tokenize(group.text)
+                    if len(tokenized_block_into_sents)%2 ==0:
+                        for j in range(0, len(tokenized_block_into_sents), 2):
+                            example_list.append(
+                                {"en": tokenized_block_into_sents[j], "ru": tokenized_block_into_sents[j + 1]})
+                    else:
+                        print("проблема в парсинге примеров")
+
             # translate some of source_context:
             source_contexts_translation = []
             max_num_of_source_contexts_tranlation = 10
@@ -447,20 +503,11 @@ def run_backend_get_tranlate_of_unique_words(words_dict):
                 time.sleep(3)
                 text_translation = output.get_attribute("value")
                 source_contexts_translation.append({"en": word_dict["meta"]["contexts"][j], "ru":text_translation})
-
-            # get ya_context for [{"en":,"ru":}]
-            ya_contexts = []
-            max_num_of_ya_contexts_tranlation = 10
-            if len(other)!=0:
-                splitted = other.split('\n')
-                #if len(splitted)%2 != 0: # do nothing, but it can be problem
-                if len(splitted)<max_num_of_ya_contexts_tranlation:
-                    max_num_of_ya_contexts_tranlation=len(splitted)
-                for index_of_sent in range(0,max_num_of_ya_contexts_tranlation,2):
-                    ya_contexts.append({"en":splitted[index_of_sent],"ru":splitted[index_of_sent+1]})
-
-            traslate_output[key].append({"word":{"en":word_dict["word"],"ru":word_translation}, "ya_context":ya_contexts,"source_contexts":source_contexts_translation})
-            print("{}/{} word [{}] translate [{}]".format(i,300,word_dict["word"],word_translation))
+            index_for_slice_emaple_list = 3
+            if index_for_slice_emaple_list>len(example_list):
+                index_for_slice_emaple_list = len(example_list)
+            traslate_output[key].append({"word":{"en":word_dict["word"],"ru":word_translation}, "ya_context":example_list[:index_for_slice_emaple_list],"source_contexts":source_contexts_translation})
+            print("{} word [{}] translate [{}]".format(i,word_dict["word"],word_translation))
             i+=1
     driver.close()
     return traslate_output
@@ -513,33 +560,68 @@ def make_table(rows,header,tabulation):
     table_str += '</font>\n'
     return table_str
 
-
-
-
-
-def run_fronted_add_table_with_unique_words_to_html(translate,output_path):
-    html_code = ''
-    html_code+=\
-"""
-<!DOCTYPE html>
-<html>
-
-    <head>
-        <meta charset="utf-8">
-        <style>
-        .center {
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        table, th, td {
-        border: 1px solid black;
-        }
-        </style>
-    </head>
+def run_frontend_start_html_code():
+    html_code = \
+        """
+        <!DOCTYPE html>
+        <html>
     
-    <body>
-"""
+            <head>
+                <meta charset="utf-8">
+                <style>
+                .center {
+                    margin-left: auto;
+                    margin-right: auto;
+                }
+    
+                table, th, td {
+                border: 1px solid black;
+                }
+                </style>
+            </head>
+    
+            <body>
+        """
+    return html_code
+
+
+def run_frontend_end_html_code(html_code,output_path):
+    html_code += \
+        """
+            </body>
+
+        </html>
+        """
+    with codecs.open(output_path, 'wb', encoding='utf-8') as out:
+        out.write(html_code)
+
+def run_fronted_add_metadat_of_text_to_html(html_code,metadata):
+
+    table_str = '\n<font size="2" face="Times New Roman" >\n'
+    table_str +='<table class="center" width="50%">\n'
+
+    fields_names = []
+    fields_data =[]
+    for meta_field_name,meta_field_data in metadata.items():
+        fields_names.append(meta_field_name)
+        fields_data.append(meta_field_data)
+
+    table_str += '\t<tr>\n'
+    for i in range(len(fields_names)):
+        table_str += '\t<th>\n' + fields_names[i] +'\t</th>\n'
+    table_str += '\t</tr>\n'
+
+    table_str += '\t<tr>\n'
+    for i in range(len(fields_data)):
+        table_str += '\t<td>\n' + fields_data[i] +'\t</td>\n'
+    table_str += '\t</tr>\n'
+    table_str+= '</table>\n'
+    table_str += '</font>\n'
+    html_code += table_str
+    return html_code
+
+def run_fronted_add_table_with_unique_words_to_html(html_code,translate):
+
     html_code += make_h1('overview of words', '\t\t')
     # traslate_output[key].append({"word": {"en": word_dict["word"], "ru": word_translation}, "ya_context": ya_contexts,
     #                              "source_contexts": source_contexts_translation})
@@ -567,17 +649,7 @@ def run_fronted_add_table_with_unique_words_to_html(translate,output_path):
                     rows.append([ya_context["ru"]])
         html_code+=make_table(rows,words_type,"\t\t\t")
 
-
-    html_code+=\
-"""
-    </body>
-    
-</html>
-"""
-    # with open(output_path,'wb') as out:
-    #     out.write(html_code.encode('utf-8'))
-    with codecs.open(output_path, 'wb', encoding='utf-8') as out:
-        out.write(html_code)
+    return html_code
 
 #
 #
@@ -620,3 +692,22 @@ def run_fronted_add_table_with_unique_words_to_html(translate,output_path):
 # print(table_htmp_code)
 # with open(output_path, 'w') as text_file:
     # text_file.write(table_htmp_code)
+
+
+# all_row_strings = []
+# with fitz.open(pdf_path) as pdf:
+#     for i, page in enumerate(pdf):
+#         words = page.get_text("words")
+#         for word in words:
+#             all_row_strings.append(word[4])
+#         # blocks = page.get_text("blocks")
+#         # block_0 = blocks[0]
+#         # x_0 = block_0[0]
+#         # y_0 =block_0[1]
+#         # x_1 =block_0[2]
+#         # y_1 =block_0[3]
+#         # mat = fitz.Matrix(2, 2)
+#         # rect= page.rect
+#         # pix = page.get_pixmap(matrix=mat, clip=(x_0,y_0,x_1,y_1))
+#         # imaga_path= "./pixmaps/pixmap_{}.png".format(i)
+#         # pix.save(imaga_path)
